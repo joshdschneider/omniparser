@@ -2,7 +2,7 @@ import torch
 import base64
 import io
 from PIL import Image
-from packages.util.utils import get_yolo_model, get_caption_model_processor, check_ocr_box, get_som_labeled_img
+from util.utils import get_yolo_model, get_caption_model_processor, check_ocr_box, get_som_labeled_img
 
 class Model:
     def __init__(self, **kwargs):
