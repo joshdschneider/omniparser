@@ -1,0 +1,50 @@
+# python v3.12
+python_version: py311
+
+# model
+model_name: OmniParser
+description: Parse user interface screenshots into structured elements.
+model_class_name: Model
+model_module_dir: model
+model_metadata: {}
+
+# pip requirements
+requirements:
+  - pillow==11.1.0
+  - torch==2.6.0
+  - torchvision==0.21.0
+  - numpy==1.26.4
+  - matplotlib==3.10.0
+  - easyocr==1.7.2
+  - supervision==0.18.0
+  - ultralytics==8.3.70
+  - transformers==4.49.0
+  - timm==1.0.14
+  - einops==0.8.0
+
+# download weights from S3
+external_data:
+  - url: https://s3.us-east-2.amazonaws.com/omniparser-weights/weights.tar.gz
+    local_data_path: data/omniparser.tar.gz
+
+# unzip weights
+build_commands:
+  - tar -xzvf data/omniparser.tar.gz -C data/
+
+# inference resources
+resources:
+  cpu: "1"
+  memory: 4Gi
+  use_gpu: true
+  accelerator: A100
+
+# env variables
+environment_variables:
+  SOM_MODEL_PATH: data/weights/icon_detect/model.pt
+  CAPTION_MODEL_NAME: florence2
+  CAPTION_MODEL_PATH: data/weights/icon_caption_florence
+
+# additional config
+external_package_dirs: []
+system_packages: []
+secrets: {}
