@@ -4,7 +4,6 @@ from PIL import Image
 import cv2
 import numpy as np
 from matplotlib import pyplot
-import easyocr
 import base64
 import torch
 from typing import Tuple, List, Union
@@ -14,39 +13,6 @@ import supervision as sv
 import torchvision.transforms as T
 from util.box_annotator import BoxAnnotator 
 
-reader = easyocr.Reader(['en'])
-
-def get_caption_model_processor(model_name, model_name_or_path="Salesforce/blip2-opt-2.7b", device=None):
-    if not device:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    if model_name == "blip2":
-        from transformers import Blip2Processor, Blip2ForConditionalGeneration
-        processor = Blip2Processor.from_pretrained("Salesforce/blip2-opt-2.7b")
-        if device == 'cpu':
-            model = Blip2ForConditionalGeneration.from_pretrained(
-            model_name_or_path, device_map=None, torch_dtype=torch.float32
-        ) 
-        else:
-            model = Blip2ForConditionalGeneration.from_pretrained(
-            model_name_or_path, device_map=None, torch_dtype=torch.float16
-        ).to(device)
-    elif model_name == "florence2":
-        from transformers import AutoProcessor, AutoModelForCausalLM 
-        processor = AutoProcessor.from_pretrained("microsoft/Florence-2-base", trust_remote_code=True)
-        if device == 'cpu':
-            model = AutoModelForCausalLM.from_pretrained(model_name_or_path, torch_dtype=torch.float32, trust_remote_code=True)
-        else:
-            model = AutoModelForCausalLM.from_pretrained(model_name_or_path, torch_dtype=torch.float16, trust_remote_code=True).to(device)
-    return {'model': model.to(device), 'processor': processor}
-
-
-def get_yolo_model(model_path):
-    from ultralytics import YOLO
-    model = YOLO(model_path)
-    return model
-
-
-@torch.inference_mode()
 def get_parsed_content_icon(filtered_boxes, starting_idx, image_source, caption_model_processor, prompt=None, batch_size=128):
     # Number of samples per batch, --> 128 roughly takes 4 GB of GPU memory for florence v2 model
     to_pil = ToPILImage()
@@ -89,8 +55,6 @@ def get_parsed_content_icon(filtered_boxes, starting_idx, image_source, caption_
         generated_texts.extend(generated_text)
     
     return generated_texts
-
-
 
 def get_parsed_content_icon_phi3v(filtered_boxes, ocr_bbox, image_source, caption_model_processor):
     to_pil = ToPILImage()
@@ -195,7 +159,6 @@ def remove_overlap(boxes, iou_threshold, ocr_bbox=None):
                 filtered_boxes.append(box1)
     return torch.tensor(filtered_boxes)
 
-
 def remove_overlap_new(boxes, iou_threshold, ocr_bbox=None):
     '''
     ocr_bbox format: [{'type': 'text', 'bbox':[x,y], 'interactivity':False, 'content':str }, ...]
@@ -287,7 +250,6 @@ def load_image(image_path: str) -> Tuple[np.array, torch.Tensor]:
     image_transformed, _ = transform(image_source, None)
     return image, image_transformed
 
-
 def annotate(image_source: np.ndarray, boxes: torch.Tensor, logits: torch.Tensor, phrases: List[str], text_scale: float, text_padding=5, text_thickness=2, thickness=3) -> np.ndarray:
     """    
     This function annotates an image with bounding boxes and labels.
@@ -317,7 +279,6 @@ def annotate(image_source: np.ndarray, boxes: torch.Tensor, logits: torch.Tensor
     label_coordinates = {f"{phrase}": v for phrase, v in zip(phrases, xywh)}
     return annotated_frame, label_coordinates
 
-
 def predict(model, image, caption, box_threshold, text_threshold):
     """ Use huggingface model to replace the original model
     """
@@ -337,7 +298,6 @@ def predict(model, image, caption, box_threshold, text_threshold):
     )[0]
     boxes, logits, phrases = results["boxes"], results["scores"], results["labels"]
     return boxes, logits, phrases
-
 
 def predict_yolo(model, image, box_threshold, imgsz, scale_img, iou_threshold=0.7):
     """ Use huggingface model to replace the original model
@@ -370,7 +330,6 @@ def int_box_area(box, w, h):
 
 def get_som_labeled_img(image_source: Union[str, Image.Image], model=None, BOX_TRESHOLD=0.1, output_coord_in_ratio=False, ocr_bbox=None, text_scale=0.4, text_padding=5, draw_bbox_config=None, caption_model_processor=None, ocr_text=[], use_local_semantics=True, iou_threshold=0.7,prompt=None, scale_img=False, imgsz=None, batch_size=128):
     """Process either an image path or Image object
-    
     Args:
         image_source: Either a file path (str) or PIL Image object
         ...
@@ -443,7 +402,6 @@ def get_som_labeled_img(image_source: Union[str, Image.Image], model=None, BOX_T
 
     return encoded_image, label_coordinates, filtered_boxes_elem
 
-
 def get_xywh(input):
     x, y, w, h = input[0][0], input[0][1], input[2][0] - input[0][0], input[2][1] - input[0][1]
     x, y, w, h = int(x), int(y), int(w), int(h)
@@ -459,7 +417,7 @@ def get_xywh_yolo(input):
     x, y, w, h = int(x), int(y), int(w), int(h)
     return x, y, w, h
 
-def check_ocr_box(image_source: Union[str, Image.Image], display_img = True, output_bb_format='xywh', goal_filtering=None, easyocr_args=None):
+def check_ocr_box(image_source: Union[str, Image.Image], easyocr_reader, easyocr_args=None, display_img=True, output_bb_format='xywh', goal_filtering=None):
     if isinstance(image_source, str):
         image_source = Image.open(image_source)
     if image_source.mode == 'RGBA':
@@ -469,7 +427,7 @@ def check_ocr_box(image_source: Union[str, Image.Image], display_img = True, out
     w, h = image_source.size
     if easyocr_args is None:
         easyocr_args = {}
-    result = reader.readtext(image_np, **easyocr_args)
+    result = easyocr_reader.readtext(image_np, **easyocr_args)
     coord = [item[0] for item in result]
     text = [item[1] for item in result]
     if display_img:

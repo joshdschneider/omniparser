@@ -24,31 +24,32 @@ requirements:
 
 # debian packages
 system_packages:
-  - libgl1
+  - libgl1-mesa-dev
 
 # download weights from S3
 external_data:
   - url: https://computerlm-public.s3.us-east-1.amazonaws.com/omniparser.tar.gz
     local_data_path: omniparser.tar.gz
+  - url: https://computerlm-public.s3.us-east-1.amazonaws.com/easyocr.tar.gz
+    local_data_path: easyocr.tar.gz
 
 # unzip weights
 build_commands:
-  - tar -xzvf data/omniparser.tar.gz -C data/
+  - mkdir -p data/omniparser data/easyocr
+  - tar -xzvf data/omniparser.tar.gz -C data/omniparser/
+  - tar -xzvf data/easyocr.tar.gz -C data/easyocr/
 
 # inference resources
 resources:
-  cpu: "1"
-  memory: 4Gi
+  cpu: "4"
+  memory: 16Gi
   use_gpu: true
   accelerator: A100
 
-# env variables
-environment_variables:
-  SOM_MODEL_PATH: data/weights/icon_detect/model.pt
-  CAPTION_MODEL_NAME: florence2
-  CAPTION_MODEL_PATH: data/weights/icon_caption_florence
+runtime:
+  predict_concurrency: 5
+  enable_debug_logs: true
 
 # additional config
 external_package_dirs: []
-system_packages: []
 secrets: {}
