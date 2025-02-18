@@ -22,6 +22,10 @@ requirements:
   - timm==1.0.14
   - einops==0.8.0
 
+# debian packages
+system_packages:
+  - libgl1
+
 # download weights from S3
 external_data:
   - url: https://computerlm-public.s3.us-east-1.amazonaws.com/omniparser.tar.gz

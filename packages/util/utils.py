@@ -1,12 +1,10 @@
 import io
 import base64
-import time
 from PIL import Image
 import cv2
 import numpy as np
 from matplotlib import pyplot
 import easyocr
-import time
 import base64
 import torch
 from typing import Tuple, List, Union
