@@ -13,7 +13,7 @@ import supervision as sv
 import torchvision.transforms as T
 from util.box_annotator import BoxAnnotator 
 
-def get_parsed_content_icon(filtered_boxes, starting_idx, image_source, caption_model_processor, prompt=None, batch_size=128):
+def get_parsed_content_icon(filtered_boxes, starting_idx, image_source, caption_model_processor, prompt=None, batch_size=256):
     # Number of samples per batch, --> 128 roughly takes 4 GB of GPU memory for florence v2 model
     to_pil = ToPILImage()
     if starting_idx:
@@ -40,20 +40,23 @@ def get_parsed_content_icon(filtered_boxes, starting_idx, image_source, caption_
     
     generated_texts = []
     device = model.device
-    for i in range(0, len(croped_pil_image), batch_size):
-        batch = croped_pil_image[i:i+batch_size]
-        if model.device.type == 'cuda':
-            inputs = processor(images=batch, text=[prompt]*len(batch), return_tensors="pt", do_resize=False).to(device=device, dtype=torch.float16)
-        else:
-            inputs = processor(images=batch, text=[prompt]*len(batch), return_tensors="pt").to(device=device)
-        if 'florence' in model.config.name_or_path:
-            generated_ids = model.generate(input_ids=inputs["input_ids"],pixel_values=inputs["pixel_values"],max_new_tokens=20,num_beams=1, do_sample=False)
-        else:
-            generated_ids = model.generate(**inputs, max_length=100, num_beams=5, no_repeat_ngram_size=2, early_stopping=True, num_return_sequences=1) # temperature=0.01, do_sample=True,
-        generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)
-        generated_text = [gen.strip() for gen in generated_text]
-        generated_texts.extend(generated_text)
-    
+
+    with torch.no_grad():
+        for i in range(0, len(croped_pil_image), batch_size):
+            batch = croped_pil_image[i:i+batch_size]
+            if device.type == 'cuda':
+                inputs = processor(images=batch, text=[prompt]*len(batch), return_tensors="pt", do_resize=False).to(device=device, dtype=torch.float16)
+            else:
+                inputs = processor(images=batch, text=[prompt]*len(batch), return_tensors="pt").to(device=device)
+           
+            if 'florence' in model.config.name_or_path:
+                generated_ids = model.generate(input_ids=inputs["input_ids"],pixel_values=inputs["pixel_values"],max_new_tokens=20,num_beams=1, do_sample=False)
+            else:
+                generated_ids = model.generate(**inputs, max_length=100, num_beams=5, no_repeat_ngram_size=2, early_stopping=True, num_return_sequences=1)
+           
+            generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)
+            generated_texts.extend([gen.strip() for gen in generated_text])
+
     return generated_texts
 
 def get_parsed_content_icon_phi3v(filtered_boxes, ocr_bbox, image_source, caption_model_processor):
@@ -74,7 +77,7 @@ def get_parsed_content_icon_phi3v(filtered_boxes, ocr_bbox, image_source, captio
     messages = [{"role": "user", "content": "<|image_1|>\ndescribe the icon in one sentence"}] 
     prompt = processor.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
 
-    batch_size = 5  # Number of samples per batch
+    batch_size = 5
     generated_texts = []
 
     for i in range(0, len(croped_pil_image), batch_size):
@@ -302,21 +305,21 @@ def predict(model, image, caption, box_threshold, text_threshold):
 def predict_yolo(model, image, box_threshold, imgsz, scale_img, iou_threshold=0.7):
     """ Use huggingface model to replace the original model
     """
-    # model = model['model']
-    if scale_img:
-        result = model.predict(
-        source=image,
-        conf=box_threshold,
-        imgsz=imgsz,
-        iou=iou_threshold, # default 0.7
-        )
-    else:
-        result = model.predict(
-        source=image,
-        conf=box_threshold,
-        iou=iou_threshold, # default 0.7
-        )
-    boxes = result[0].boxes.xyxy#.tolist() # in pixel space
+    with torch.no_grad():
+        if scale_img:
+            result = model.predict(
+                source=image,
+                conf=box_threshold,
+                imgsz=imgsz,
+                iou=iou_threshold,
+            )
+        else:
+            result = model.predict(
+                source=image,
+                conf=box_threshold,
+                iou=iou_threshold,
+            )
+    boxes = result[0].boxes.xyxy
     conf = result[0].boxes.conf
     phrases = [str(i) for i in range(len(boxes))]
 
@@ -328,7 +331,7 @@ def int_box_area(box, w, h):
     area = (int_box[2] - int_box[0]) * (int_box[3] - int_box[1])
     return area
 
-def get_som_labeled_img(image_source: Union[str, Image.Image], model=None, BOX_TRESHOLD=0.1, output_coord_in_ratio=False, ocr_bbox=None, text_scale=0.4, text_padding=5, draw_bbox_config=None, caption_model_processor=None, ocr_text=[], use_local_semantics=True, iou_threshold=0.7,prompt=None, scale_img=False, imgsz=None, batch_size=128):
+def get_som_labeled_img(image_source: Union[str, Image.Image], model=None, BOX_TRESHOLD=0.1, output_coord_in_ratio=False, ocr_bbox=None, text_scale=0.4, text_padding=5, draw_bbox_config=None, caption_model_processor=None, ocr_text=[], use_local_semantics=True, iou_threshold=0.7,prompt=None, scale_img=False, imgsz=None, batch_size=256):
     """Process either an image path or Image object
     Args:
         image_source: Either a file path (str) or PIL Image object
@@ -377,13 +380,10 @@ def get_som_labeled_img(image_source: Union[str, Image.Image], model=None, BOX_T
                 box['content'] = parsed_content_icon.pop(0)
         for i, txt in enumerate(parsed_content_icon):
             parsed_content_icon_ls.append(f"Icon Box ID {str(i+icon_start)}: {txt}")
-        parsed_content_merged = ocr_text + parsed_content_icon_ls
     else:
         ocr_text = [f"Text Box ID {i}: {txt}" for i, txt in enumerate(ocr_text)]
-        parsed_content_merged = ocr_text
 
     filtered_boxes = box_convert(boxes=filtered_boxes, in_fmt="xyxy", out_fmt="cxcywh")
-
     phrases = [i for i in range(len(filtered_boxes))]
     
     # draw boxes

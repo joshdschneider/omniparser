@@ -32,19 +32,19 @@ class Model:
         easyocr_dir = os.path.join(self._data_dir, "easyocr", "easyocr", "model")
         self.easyocr_reader = easyocr.Reader(['en'], gpu=self.device == 'cuda', model_storage_directory=easyocr_dir, download_enabled=False)
     
+    def preprocess(self, request: dict):
+        image_base64 = request.get("image")
+        image_bytes = base64.b64decode(image_base64)
+        self._image = Image.open(io.BytesIO(image_bytes))
+        return request
+
     def predict(self, request: dict):
         # Get parameters from request
-        image_base64 = request.get("image")
         box_threshold = request.get('box_threshold', 0.1)
         iou_threshold = request.get('iou_threshold', 0.7)
         
-        start_time = time.time()
-        # Decode image
-        image_bytes = base64.b64decode(image_base64)
-        image = Image.open(io.BytesIO(image_bytes))
-
         # Calculate box overlay ratio
-        box_overlay_ratio = max(image.size) / 3200
+        box_overlay_ratio = max(self._image.size) / 3200
         draw_bbox_config = {
             'text_scale': 0.8 * box_overlay_ratio,
             'text_thickness': max(int(2 * box_overlay_ratio), 1),
@@ -52,21 +52,19 @@ class Model:
             'thickness': max(int(3 * box_overlay_ratio), 1),
         }
 
-        print(f"Image decode time: {time.time() - start_time}")
-
         start_time2 = time.time()
         # Get OCR text and bounding boxes
-        (text, ocr_bbox), _ = check_ocr_box(image, self.easyocr_reader, easyocr_args={'paragraph': False, 'text_threshold': 0.8}, display_img=False, output_bb_format='xyxy')
+        (text, ocr_bbox), _ = check_ocr_box(self._image, self.easyocr_reader, easyocr_args={'paragraph': False, 'text_threshold': 0.8}, display_img=False, output_bb_format='xyxy')
         print(f"OCR time: {time.time() - start_time2}")
 
         start_time3 = time.time()
         # Get SOM labeled image
-        dino_labled_img, label_coordinates, parsed_content_list = get_som_labeled_img(image, self.som_model, BOX_TRESHOLD=box_threshold, output_coord_in_ratio=True, ocr_bbox=ocr_bbox, draw_bbox_config=draw_bbox_config, caption_model_processor=self.caption_model_processor, ocr_text=text, iou_threshold=iou_threshold)
+        dino_labled_img, label_coordinates, parsed_content_list = get_som_labeled_img(self._image, self.som_model, BOX_TRESHOLD=box_threshold, output_coord_in_ratio=True, ocr_bbox=ocr_bbox, draw_bbox_config=draw_bbox_config, caption_model_processor=self.caption_model_processor, ocr_text=text, iou_threshold=iou_threshold)
         print(f"SOM time: {time.time() - start_time3}")
         
         start_time4 = time.time()
         # Convert bounding box coordinates to absolute values
-        width, height = image.size
+        width, height = self._image.size
         for item in parsed_content_list:
             bbox = item['bbox']
             item['bbox'] = [
